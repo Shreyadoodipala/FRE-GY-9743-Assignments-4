@@ -107,21 +107,64 @@ class Interpolator1DPCP(Interpolator1D):
                          extrapolation_method)
         assert self.extrap_method_ == ExtrapMethod.FLAT
 
+    def _segment_ranges(self):
+        if len(self.axis1_) == 1:
+            return [(-np.inf, np.inf, 0)]
+
+        ranges = [(-np.inf, self.axis1_[0], 0)]
+        for i in range(1, len(self.axis1_)):
+            ranges.append((self.axis1_[i - 1], self.axis1_[i], i))
+        ranges.append((self.axis1_[-1], np.inf, len(self.axis1_) - 1))
+        return ranges
+
+    @staticmethod
+    def _overlap_length(start_x: float, end_x: float, lower: float, upper: float) -> float:
+        if end_x < start_x:
+            return -Interpolator1DPCP._overlap_length(end_x, start_x, lower, upper)
+
+        lower_bound = start_x if np.isneginf(lower) else max(start_x, lower)
+        upper_bound = end_x if np.isposinf(upper) else min(end_x, upper)
+        return max(0.0, upper_bound - lower_bound)
+
     def interpolate(self, x: float) -> float:
-        #TODO
-        pass
+        x_arr = np.asarray(x, dtype=float)
+        idx = np.searchsorted(self.axis1_, x_arr, side='left')
+        idx = np.clip(idx, 0, self.length_ - 1)
+        values = self.values_[idx]
+        return float(values.item()) if np.ndim(x_arr) == 0 else values
 
     def integrate(self, start_x: float, end_x: float) -> float:
-        #TODO
-        pass
+        if start_x == end_x:
+            return 0.0
+        if end_x < start_x:
+            return -self.integrate(end_x, start_x)
+
+        result = 0.0
+        for lower, upper, node_idx in self._segment_ranges():
+            overlap = self._overlap_length(start_x, end_x, lower, upper)
+            result += self.values_[node_idx] * overlap
+        return float(result)
 
     def gradient_wrt_ordinate(self, x: float) -> np.ndarray:
-        #TODO
-        pass
+        x_arr = np.asarray(x, dtype=float)
+        flat_x = np.atleast_1d(x_arr)
+        idx = np.searchsorted(self.axis1_, flat_x, side='left')
+        idx = np.clip(idx, 0, self.length_ - 1)
+
+        grad = np.zeros((flat_x.size, self.length_), dtype=float)
+        grad[np.arange(flat_x.size), idx] = 1.0
+        return grad[0] if x_arr.ndim == 0 else grad
 
     def gradient_of_integrated_value_wrt_ordinate(self, start_x: float, end_x: float) -> np.ndarray:
-        #TODO
-        pass
+        if start_x == end_x:
+            return np.zeros(self.length_, dtype=float)
+        if end_x < start_x:
+            return -self.gradient_of_integrated_value_wrt_ordinate(end_x, start_x)
+
+        grad = np.zeros(self.length_, dtype=float)
+        for lower, upper, node_idx in self._segment_ranges():
+            grad[node_idx] += self._overlap_length(start_x, end_x, lower, upper)
+        return grad
 
 
 
